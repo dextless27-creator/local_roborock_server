@@ -1,14 +1,11 @@
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.source="https://github.com/python-roborock/local_roborock_server" \
-  org.opencontainers.image.description="Private Roborock HTTPS and MQTT stack for local LAN use" \
-  org.opencontainers.image.licenses="MIT"
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     coturn \
     curl \
+    git \
     mosquitto \
     openssl \
   && rm -rf /var/lib/apt/lists/*
@@ -19,13 +16,16 @@ RUN mkdir -p /opt/acme.sh \
   && chmod +x /opt/acme.sh/acme.sh \
   && ln -sf /opt/acme.sh/acme.sh /usr/local/bin/acme.sh
 
+# Supervisor builds this add-on from its own folder, so fetch the server source
+# from the branch. BUILD_VERSION changes with the add-on version, which busts the cache.
+ARG BUILD_VERSION
+ARG SOURCE_REPO=https://github.com/dextless27-creator/local_roborock_server.git
+ARG SOURCE_REF=feat/camera-turn-support
+RUN echo "building ${BUILD_VERSION}" \
+  && git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /tmp/src \
+  && pip install --no-cache-dir /tmp/src \
+  && rm -rf /tmp/src
+
 WORKDIR /app
-
-COPY pyproject.toml README.md /app/
-COPY src /app/src
-
-RUN pip install --no-cache-dir /app
-
-EXPOSE 555 8881
 
 CMD ["python", "-m", "roborock_local_server.container_entrypoint"]

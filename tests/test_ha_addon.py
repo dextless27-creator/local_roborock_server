@@ -481,3 +481,106 @@ def test_write_config_from_home_assistant_options_removes_stale_cloudflare_token
     assert token_path.exists() is False
     assert kid_path.exists() is False
     assert hmac_path.exists() is False
+
+
+def _camera_options(**camera: object) -> dict[str, object]:
+    return {
+        "stack_fqdn": "api-roborock.example.com",
+        "tls_mode": "provided",
+        "cert_file": "/ssl/fullchain.pem",
+        "key_file": "/ssl/privkey.pem",
+        "admin_password": "super-secret-password",
+        "protocol_login_email": "user@example.com",
+        "protocol_login_pin": "123456",
+        **camera,
+    }
+
+
+def test_write_config_from_home_assistant_options_camera_off_by_default(tmp_path: Path) -> None:
+    options_path = tmp_path / "options.json"
+    config_path = tmp_path / "config.toml"
+    turn_conf = tmp_path / "turnserver.conf"
+    turn_conf.write_text("stale", encoding="utf-8")
+    _write_options(options_path, _camera_options())
+
+    write_config_from_home_assistant_options(
+        options_path=options_path,
+        config_path=config_path,
+        cloudflare_token_path=tmp_path / "cloudflare_token",
+        turnserver_conf_path=turn_conf,
+    )
+
+    assert "camera" not in tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert not turn_conf.exists()
+
+
+def test_write_config_from_home_assistant_options_bundled_turn(tmp_path: Path) -> None:
+    options_path = tmp_path / "options.json"
+    config_path = tmp_path / "config.toml"
+    turn_conf = tmp_path / "turnserver.conf"
+    _write_options(
+        options_path,
+        _camera_options(
+            camera_turn_mode="bundled",
+            camera_turn_host="192.168.1.10",
+            camera_turn_password="relay-secret",
+            camera_turn_external_ip="203.0.113.7",
+        ),
+    )
+
+    write_config_from_home_assistant_options(
+        options_path=options_path,
+        config_path=config_path,
+        cloudflare_token_path=tmp_path / "cloudflare_token",
+        turnserver_conf_path=turn_conf,
+    )
+
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed["camera"] == {
+        "turn_url": "turn:192.168.1.10:3478",
+        "turn_user": "roborock",
+        "turn_password": "relay-secret",
+    }
+    conf_lines = turn_conf.read_text(encoding="utf-8").splitlines()
+    assert "listening-port=3478" in conf_lines
+    assert "user=roborock:relay-secret" in conf_lines
+    assert "external-ip=203.0.113.7" in conf_lines
+
+
+def test_write_config_from_home_assistant_options_external_turn_writes_no_coturn_config(tmp_path: Path) -> None:
+    options_path = tmp_path / "options.json"
+    config_path = tmp_path / "config.toml"
+    turn_conf = tmp_path / "turnserver.conf"
+    _write_options(
+        options_path,
+        _camera_options(
+            camera_turn_mode="external",
+            camera_turn_host="turn.example.com",
+            camera_turn_port=5349,
+            camera_turn_password="relay-secret",
+        ),
+    )
+
+    write_config_from_home_assistant_options(
+        options_path=options_path,
+        config_path=config_path,
+        cloudflare_token_path=tmp_path / "cloudflare_token",
+        turnserver_conf_path=turn_conf,
+    )
+
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed["camera"]["turn_url"] == "turn:turn.example.com:5349"
+    assert not turn_conf.exists()
+
+
+def test_write_config_from_home_assistant_options_bundled_turn_requires_password(tmp_path: Path) -> None:
+    options_path = tmp_path / "options.json"
+    _write_options(options_path, _camera_options(camera_turn_mode="bundled", camera_turn_host="192.168.1.10"))
+
+    with pytest.raises(ValueError, match="camera_turn_password"):
+        write_config_from_home_assistant_options(
+            options_path=options_path,
+            config_path=tmp_path / "config.toml",
+            cloudflare_token_path=tmp_path / "cloudflare_token",
+            turnserver_conf_path=tmp_path / "turnserver.conf",
+        )

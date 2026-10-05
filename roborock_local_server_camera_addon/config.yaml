@@ -1,0 +1,69 @@
+name: Roborock Local Server (Camera Test)
+version: "1.2.0-camera.1"
+slug: roborock_local_server_camera
+description: Roborock Local Server built from the feat/camera-turn-support branch, with a bundled TURN relay for camera live view.
+url: "https://github.com/dextless27-creator/local_roborock_server/tree/feat/camera-turn-support"
+startup: services
+boot: auto
+init: false
+arch:
+  - amd64
+  - aarch64
+# Host networking so the bundled TURN relay can use its UDP relay port range.
+# Stop the regular Roborock Local Server add-on first: both use ports 555 and 8881.
+host_network: true
+map:
+  - ssl:ro
+  - addon_config:rw
+  - all_addon_configs:ro
+webui: "https://[HOST]:[PORT:555]/admin"
+options:
+  stack_fqdn: "api-roborock.example.com"
+  https_port: 555
+  mqtt_tls_port: 8881
+  advertised_https_port: 0
+  advertised_mqtt_tls_port: 0
+  region: "us"
+  tls_mode: "provided"
+  tls_base_domain: ""
+  tls_email: ""
+  acme_server: "zerossl"
+  acme_eab_kid: ""
+  acme_eab_hmac_key: ""
+  cloudflare_token: ""
+  cert_file: ""
+  key_file: ""
+  admin_password: ""
+  protocol_login_email: ""
+  protocol_login_pin: ""
+  camera_turn_mode: "bundled"
+  camera_turn_host: ""
+  camera_turn_port: 3478
+  camera_turn_user: "roborock"
+  camera_turn_password: ""
+  camera_turn_external_ip: ""
+schema:
+  stack_fqdn: str
+  https_port: port
+  mqtt_tls_port: port
+  advertised_https_port: int
+  advertised_mqtt_tls_port: int
+  region: list(us|eu|cn|ru)
+  tls_mode: list(provided|cloudflare_acme)
+  tls_base_domain: str
+  tls_email: str
+  acme_server: list(zerossl|actalis)
+  acme_eab_kid: str
+  acme_eab_hmac_key: password
+  cloudflare_token: str
+  cert_file: str
+  key_file: str
+  admin_password: password
+  protocol_login_email: email
+  protocol_login_pin: password
+  camera_turn_mode: list(off|bundled|external)
+  camera_turn_host: str
+  camera_turn_port: port
+  camera_turn_user: str
+  camera_turn_password: password
+  camera_turn_external_ip: str

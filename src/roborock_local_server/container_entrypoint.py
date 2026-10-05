@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
+import subprocess
 
-from .ha_addon import write_config_from_home_assistant_options
+from .ha_addon import DEFAULT_TURNSERVER_CONF_PATH, write_config_from_home_assistant_options
 
 
 def _exec_server(config_path: Path) -> None:
@@ -15,7 +17,24 @@ def _exec_server(config_path: Path) -> None:
     )
 
 
-def _run_entrypoint(*, compose_config: Path, data_config: Path, addon_options: Path) -> None:
+def _start_bundled_turnserver(conf_path: Path) -> None:
+    """Start the bundled coturn relay for camera live view when the add-on enabled it."""
+    if not conf_path.exists():
+        return
+    binary = shutil.which("turnserver")
+    if binary is None:
+        print("camera_turn_mode is 'bundled' but turnserver is not installed; camera live view will fail")
+        return
+    subprocess.Popen([binary, "-c", str(conf_path)])
+
+
+def _run_entrypoint(
+    *,
+    compose_config: Path,
+    data_config: Path,
+    addon_options: Path,
+    turnserver_conf: Path = DEFAULT_TURNSERVER_CONF_PATH,
+) -> None:
     if compose_config.exists():
         _exec_server(compose_config)
         return
@@ -25,6 +44,7 @@ def _run_entrypoint(*, compose_config: Path, data_config: Path, addon_options: P
             options_path=addon_options,
             config_path=data_config,
         )
+        _start_bundled_turnserver(turnserver_conf)
         _exec_server(data_config)
         return
 

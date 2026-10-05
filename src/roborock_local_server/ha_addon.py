@@ -32,6 +32,12 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "admin_password": "",
     "protocol_login_email": "",
     "protocol_login_pin": "",
+    "camera_turn_mode": "off",
+    "camera_turn_host": "",
+    "camera_turn_port": 3478,
+    "camera_turn_user": "roborock",
+    "camera_turn_password": "",
+    "camera_turn_external_ip": "",
 }
 
 _HOST_RE = re.compile(r"^[a-z0-9.-]+$")
@@ -40,6 +46,9 @@ DEFAULT_CONFIG_PATH = Path("/data/config.toml")
 DEFAULT_CLOUDFLARE_TOKEN_PATH = Path("/run/secrets/cloudflare_token")
 DEFAULT_ACME_EAB_KID_PATH = Path("/run/secrets/acme_eab_kid")
 DEFAULT_ACME_EAB_HMAC_KEY_PATH = Path("/run/secrets/acme_eab_hmac_key")
+DEFAULT_TURNSERVER_CONF_PATH = Path("/data/turnserver.conf")
+TURN_RELAY_MIN_PORT = 49160
+TURN_RELAY_MAX_PORT = 49200
 
 
 def _toml_string(value: str) -> str:
@@ -144,6 +153,46 @@ def _load_existing_admin_session_secret(config_path: Path) -> str:
     return secret if len(secret) >= 24 else ""
 
 
+def _render_camera(merged: dict[str, Any]) -> tuple[list[str], str | None]:
+    """Return ([camera] TOML lines, bundled coturn config or None)."""
+    mode = str(merged.get("camera_turn_mode", "off") or "off").strip().lower()
+    if mode not in {"off", "bundled", "external"}:
+        raise ValueError("camera_turn_mode must be 'off', 'bundled' or 'external'")
+    if mode == "off":
+        return [], None
+    host = _require_non_empty(merged.get("camera_turn_host"), field_name="camera_turn_host")
+    port = _as_int(merged.get("camera_turn_port"), field_name="camera_turn_port", default=3478)
+    user = _require_non_empty(merged.get("camera_turn_user"), field_name="camera_turn_user")
+    password = _require_non_empty(merged.get("camera_turn_password"), field_name="camera_turn_password")
+    lines = [
+        "",
+        "[camera]",
+        f"turn_url = {_toml_string(f'turn:{host}:{port}')}",
+        f"turn_user = {_toml_string(user)}",
+        f"turn_password = {_toml_string(password)}",
+    ]
+    if mode != "bundled":
+        return lines, None
+    turnserver_conf = [
+        f"listening-port={port}",
+        f"min-port={TURN_RELAY_MIN_PORT}",
+        f"max-port={TURN_RELAY_MAX_PORT}",
+        "lt-cred-mech",
+        "fingerprint",
+        "realm=roborock.local",
+        f"user={user}:{password}",
+        "no-cli",
+        "no-tls",
+        "no-dtls",
+        "no-multicast-peers",
+        "log-file=stdout",
+    ]
+    external_ip = str(merged.get("camera_turn_external_ip", "") or "").strip()
+    if external_ip:
+        turnserver_conf.append(f"external-ip={external_ip}")
+    return lines, "\n".join(turnserver_conf) + "\n"
+
+
 def _render_config_toml(
     *,
     options: dict[str, Any],
@@ -151,6 +200,7 @@ def _render_config_toml(
     cloudflare_token_path: Path,
     acme_eab_kid_path: Path,
     acme_eab_hmac_key_path: Path,
+    turnserver_conf_path: Path = DEFAULT_TURNSERVER_CONF_PATH,
 ) -> tuple[str, dict[Path, str]]:
     merged = dict(DEFAULT_OPTIONS)
     merged.update(options)
@@ -297,10 +347,13 @@ def _render_config_toml(
             f"new_connections_enabled = {_toml_bool(new_connections_enabled)}",
             f"protocol_login_email = {_toml_string(protocol_login_email)}",
             f"protocol_login_pin_hash = {_toml_string(protocol_login_pin_hash)}",
-            "",
         ]
     )
+    camera_lines, turnserver_conf = _render_camera(merged)
+    lines.extend([*camera_lines, ""])
     secrets_to_write: dict[Path, str] = {}
+    if turnserver_conf is not None:
+        secrets_to_write[turnserver_conf_path] = turnserver_conf
     if effective_tls_mode == "cloudflare_acme":
         secrets_to_write[cloudflare_token_path] = cloudflare_token
         if acme_server == "actalis":
@@ -316,6 +369,7 @@ def write_config_from_home_assistant_options(
     cloudflare_token_path: Path = DEFAULT_CLOUDFLARE_TOKEN_PATH,
     acme_eab_kid_path: Path = DEFAULT_ACME_EAB_KID_PATH,
     acme_eab_hmac_key_path: Path = DEFAULT_ACME_EAB_HMAC_KEY_PATH,
+    turnserver_conf_path: Path = DEFAULT_TURNSERVER_CONF_PATH,
 ) -> Path:
     options = _load_options(options_path)
     config_text, secrets_to_write = _render_config_toml(
@@ -324,10 +378,11 @@ def write_config_from_home_assistant_options(
         cloudflare_token_path=cloudflare_token_path,
         acme_eab_kid_path=acme_eab_kid_path,
         acme_eab_hmac_key_path=acme_eab_hmac_key_path,
+        turnserver_conf_path=turnserver_conf_path,
     )
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(config_text, encoding="utf-8")
-    managed_secret_paths = (cloudflare_token_path, acme_eab_kid_path, acme_eab_hmac_key_path)
+    managed_secret_paths = (cloudflare_token_path, acme_eab_kid_path, acme_eab_hmac_key_path, turnserver_conf_path)
     for path, contents in secrets_to_write.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(contents, encoding="utf-8")
