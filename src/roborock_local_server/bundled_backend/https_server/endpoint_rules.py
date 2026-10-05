@@ -67,6 +67,8 @@ from .routes.api.v5.product import build as _build_get_products_v5
 from .routes.api.v5.product import match as _match_get_products_v5
 from .routes.bootstrap.catchall import build as _build_catchall
 from .routes.bootstrap.catchall import match as _match_catchall
+from .routes.camera.turn import build as _build_camera_turn
+from .routes.camera.turn import match as _match_camera_turn
 from .routes.fw.check import build as _build_fw_check
 from .routes.fw.check import match as _match_fw_check
 from .routes.bootstrap.location import build as _build_location
@@ -598,6 +600,7 @@ def default_endpoint_rules() -> Sequence[EndpointRule]:
         EndpointRule("add_device", _match_add_device, _build_add_device),
         EndpointRule("region", _match_region, _build_region),
         EndpointRule("nc_prepare", _match_nc_prepare, _build_nc_prepare),
+        EndpointRule("camera_turn", _match_camera_turn, _build_camera_turn),
         EndpointRule("time", _match_time, _build_time),
         EndpointRule("location", _match_location, _build_location),
         EndpointRule("fw_check", _match_fw_check, _build_fw_check),

@@ -8,13 +8,16 @@ import json
 import logging
 from pathlib import Path
 import queue
+import re
 import socket
 import ssl
 import threading
+import time
 from typing import Any, Callable
 
+from shared.camera import CAMERA_RPC_METHODS, TurnServerSettings
 from shared.constants import MQTT_TYPES
-from shared.decoder import build_decoder
+from shared.decoder import build_decoder, build_encoder
 from shared.io_utils import append_jsonl, payload_preview
 from shared.protocol_auth import ProtocolAuthStore
 from shared.runtime_credentials import RuntimeCredentialsStore, parse_mqtt_connect_packet
@@ -22,6 +25,16 @@ from shared.runtime_state import RuntimeState
 from shared.zone_ranges_store import ZoneRangesStore
 
 from .command_handlers import RpcCommandRegistry
+
+_APP_REQUEST_TOPIC_RE = re.compile(r"^rr/m/i/([^/]+)/([^/]+)/([^/]+)$")
+_RPC_RESPONSE_PROTOCOL = 102
+
+
+def _publish_to_broker(host: str, port: int, topic: str, payload: bytes) -> None:
+    import paho.mqtt.publish as mqtt_publish
+
+    mqtt_publish.single(topic, payload, qos=0, hostname=host, port=port)
+
 
 class MqttTlsProxy:
     _MAX_FIRST_PACKET_BYTES = 1024 * 1024
@@ -47,6 +60,9 @@ class MqttTlsProxy:
         zone_ranges_store: ZoneRangesStore | None = None,
         tls_enabled: bool = True,
         on_onboarding_credentials_learned: Callable[[], None] | None = None,
+        turn_server: TurnServerSettings | None = None,
+        answer_turn_requests: bool = True,
+        publish_to_broker: Callable[[str, int, str, bytes], None] | None = None,
     ) -> None:
         self.cert_file = cert_file
         self.key_file = key_file
@@ -65,6 +81,9 @@ class MqttTlsProxy:
         self.runtime_credentials = runtime_credentials
         self.zone_ranges_store = zone_ranges_store
         self._on_onboarding_credentials_learned = on_onboarding_credentials_learned
+        self.turn_server = turn_server
+        self.answer_turn_requests = answer_turn_requests
+        self._publish_to_broker = publish_to_broker or _publish_to_broker
         self._server_socket: socket.socket | None = None
         self._running = False
         self._counter = 0
@@ -480,6 +499,54 @@ class MqttTlsProxy:
                 errors.append(f"{key_source}/{variant}: decoder returned 0 messages")
         return [], "none", "; ".join(errors[:6]), ""
 
+    def _answer_turn_request(
+        self,
+        conn_id: str,
+        topic: str,
+        request_id: Any,
+        localkey: str,
+        version: bytes,
+    ) -> bool:
+        """Answer an app's get_turn_server with the configured relay.
+
+        The robot can only return the TURN relay the Roborock cloud gave it, which
+        it never gets when the cloud is replaced. The reply goes to the app's
+        response topic through the backend broker; the robot's own (later) reply
+        to the same id is ignored by the app.
+        """
+        turn_server = self.turn_server
+        if not self.answer_turn_requests or turn_server is None or not turn_server.configured:
+            return False
+        topic_match = _APP_REQUEST_TOPIC_RE.match(topic)
+        if topic_match is None or not isinstance(request_id, int) or not localkey:
+            return False
+        from roborock.roborock_message import RoborockMessage, RoborockMessageProtocol
+
+        response_topic = "rr/m/o/" + "/".join(topic_match.groups())
+        rpc_response = json.dumps({"id": request_id, "result": turn_server.rpc_result()}, separators=(",", ":"))
+        payload = json.dumps({"t": int(time.time()), "dps": {str(_RPC_RESPONSE_PROTOCOL): rpc_response}})
+        message = RoborockMessage(
+            protocol=RoborockMessageProtocol(_RPC_RESPONSE_PROTOCOL),
+            payload=payload.encode("utf-8"),
+            version=version or b"1.0",
+        )
+        try:
+            encoded = build_encoder(localkey)(message)
+            self._publish_to_broker(self.backend_host, self.backend_port, response_topic, encoded)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning(
+                "[conn %s] [camera] failed to answer get_turn_server id=%s: %s", conn_id, request_id, exc
+            )
+            return False
+        self.logger.info(
+            "[conn %s] [camera] answered get_turn_server id=%s on %s with %s",
+            conn_id,
+            request_id,
+            response_topic,
+            turn_server.url,
+        )
+        return True
+
     @staticmethod
     def _parse_v1_rpc_payload(payload_utf8: str | None, protocol_value: int) -> dict[str, Any] | None:
         if not payload_utf8:
@@ -621,6 +688,12 @@ class MqttTlsProxy:
             if rpc_data is not None:
                 decoded_entry["rpc"] = rpc_data
                 if proto_value == 101:
+                    if direction == "c2b" and rpc_data.get("method") == "get_turn_server":
+                        localkey = dict(self._candidate_localkeys(topic)).get(decode_key_source, "")
+                        if self._answer_turn_request(
+                            conn_id, topic, rpc_data.get("id"), localkey, getattr(message, "version", b"1.0")
+                        ):
+                            decoded_entry["turn_server_answered"] = True
                     handled = self._command_registry.handle_request(rpc_data)
                     if handled is not None:
                         decoded_entry["handled"] = handled
@@ -660,6 +733,16 @@ class MqttTlsProxy:
                             response_to.get("request_method"),
                             response_to.get("error"),
                         )
+                        if response_to.get("request_method") in CAMERA_RPC_METHODS:
+                            self.logger.log(
+                                logging.WARNING if response_to.get("error") is not None else logging.INFO,
+                                "[conn %s %s] [camera] %s result=%s error=%s",
+                                conn_id,
+                                direction,
+                                response_to.get("request_method"),
+                                payload_preview(json.dumps(response_to.get("result")).encode("utf-8")),
+                                response_to.get("error"),
+                            )
             decoded_messages.append(decoded_entry)
             self.logger.info(
                 "[conn %s %s] PUBLISH topic=%s proto=%s(%d) ver=%s seq=%s key_source=%s payload=%s",

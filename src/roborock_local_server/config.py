@@ -72,12 +72,21 @@ class AdminConfig:
 
 
 @dataclass(frozen=True)
+class CameraConfig:
+    turn_url: str = ""
+    turn_user: str = ""
+    turn_password: str = ""
+    answer_turn_requests: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     network: NetworkConfig
     broker: BrokerConfig
     storage: StorageConfig
     tls: TlsConfig
     admin: AdminConfig
+    camera: CameraConfig = CameraConfig()
 
 
 @dataclass(frozen=True)
@@ -214,6 +223,26 @@ def _as_bool(value: object, default: bool) -> bool:
     return bool(value)
 
 
+_TURN_URL_SCHEMES = ("turn:", "turns:", "stun:", "stuns:")
+
+
+def _load_camera_config(camera: dict[str, object]) -> CameraConfig:
+    turn_url = str(camera.get("turn_url", "")).strip()
+    turn_user = str(camera.get("turn_user", "")).strip()
+    turn_password = str(camera.get("turn_password", "")).strip()
+    if turn_url:
+        if not turn_url.lower().startswith(_TURN_URL_SCHEMES):
+            raise ValueError("camera.turn_url must start with turn:, turns:, stun: or stuns:")
+        if turn_url.lower().startswith(("turn:", "turns:")) and not (turn_user and turn_password):
+            raise ValueError("camera.turn_user and camera.turn_password are required for a turn: URL")
+    return CameraConfig(
+        turn_url=turn_url,
+        turn_user=turn_user,
+        turn_password=turn_password,
+        answer_turn_requests=_as_bool(camera.get("answer_turn_requests"), True),
+    )
+
+
 def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path).resolve()
     parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
@@ -317,6 +346,7 @@ def load_config(path: str | Path) -> AppConfig:
                 "admin.protocol_login_pin_hash",
             ),
         ),
+        camera=_load_camera_config(_get_section(parsed, "camera")),
     )
 
     if len(config.admin.session_secret) < 24:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, Sequence
 
+from shared.camera import CAMERA_RPC_METHODS
+
 
 @dataclass(frozen=True)
 class HandlerResult:
@@ -56,11 +58,23 @@ class FanPowerHandler:
         )
 
 
+class CameraRpcHandler:
+    """Tags camera live-view and WebRTC signaling requests for diagnostics."""
+
+    methods = set(CAMERA_RPC_METHODS)
+
+    def handle_request(self, request: dict[str, Any]) -> HandlerResult | None:
+        method = request.get("method")
+        if method not in self.methods:
+            return None
+        return HandlerResult(handled={"camera": True, "method": method})
+
+
 class RpcCommandRegistry:
     """Routes decoded V1 RPC requests/responses to handlers and tracks state."""
 
     def __init__(self, handlers: Sequence[RpcCommandHandler] | None = None) -> None:
-        self._handlers = list(handlers or [FanPowerHandler()])
+        self._handlers = list(handlers or [FanPowerHandler(), CameraRpcHandler()])
         self._pending_by_id: dict[int, dict[str, Any]] = {}
         self._state: dict[str, Any] = {}
 

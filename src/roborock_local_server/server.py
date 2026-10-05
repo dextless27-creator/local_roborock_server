@@ -50,6 +50,7 @@ from .backend import (
     start_broker,
     strip_roborock_prefix,
 )
+from shared.camera import TurnServerSettings, is_turn_provisioning_path
 from shared.protocol_auth import ProtocolAuthStore
 from https_server.routes.auth.service import (
     build_login_data_response,
@@ -462,6 +463,11 @@ class ReleaseSupervisor:
             runtime_credentials=self.runtime_credentials,
             zone_ranges_store=self._init_zone_ranges_store(),
             timezone=self.config.network.timezone or None,
+            turn_server=TurnServerSettings(
+                url=self.config.camera.turn_url,
+                user=self.config.camera.turn_user,
+                password=self.config.camera.turn_password,
+            ),
         )
         self.endpoint_rules = default_endpoint_rules()
         self.app = self._create_app()
@@ -765,6 +771,9 @@ class ReleaseSupervisor:
     def _required_protocol_auth(cls, clean_path: str) -> str | None:
         normalized = cls._normalized_path(clean_path)
         if cls._is_public_protocol_path(normalized):
+            return None
+        # The robot fetches its camera TURN relay without an app token.
+        if is_turn_provisioning_path(normalized):
             return None
         if normalized.startswith(("/user/", "/v2/user/", "/v3/user/", "/v4/user/")):
             return "hawk"
@@ -1862,6 +1871,8 @@ class ReleaseSupervisor:
             zone_ranges_store=self.context.zone_ranges_store,
             tls_enabled=self._uses_local_tls(),
             on_onboarding_credentials_learned=self.persist_active_onboarding_device,
+            turn_server=self.context.turn_server,
+            answer_turn_requests=self.config.camera.answer_turn_requests,
         )
         self._mqtt_proxy.start()
         self.runtime_state.set_service("mqtt_tls_proxy", running=True, required=True, enabled=True)

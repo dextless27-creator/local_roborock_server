@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .bootstrap_crypto import BootstrapEncryptor
+from .camera import TurnServerSettings
 from .device_key_recovery import DeviceKeyCache
 from .http_helpers import pick_first
 from .runtime_credentials import RuntimeCredentialsStore
@@ -71,6 +72,7 @@ class ServerContext:
     runtime_credentials: RuntimeCredentialsStore | None = None
     zone_ranges_store: ZoneRangesStore | None = None
     timezone: str | None = None
+    turn_server: TurnServerSettings | None = None
     _bootstrap_encryptor: BootstrapEncryptor | None = field(init=False, default=None, repr=False)
     _device_key_cache: DeviceKeyCache | None = field(init=False, default=None, repr=False)
 

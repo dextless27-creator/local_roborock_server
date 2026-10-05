@@ -32,3 +32,11 @@ def build_decoder(localkey: str) -> tuple[Callable[[bytes], list[Any]], dict[int
         int(proto.value): proto.name for proto in RoborockMessageProtocol
     }
     return decoder, protocol_names
+
+
+def build_encoder(localkey: str) -> Callable[[Any], bytes]:
+    """Return an MQTT payload encoder for RoborockMessage objects."""
+    _ensure_local_python_roborock_on_path()
+    from roborock.protocol import create_mqtt_encoder
+
+    return create_mqtt_encoder(localkey)

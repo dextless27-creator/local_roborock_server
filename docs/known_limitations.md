@@ -2,7 +2,7 @@
 
 I have tried to copy over most functionality into this server, but some is not 100% completed. There are a few features I know are not currently working
 
-- Vacuum camera live streaming
+- Vacuum camera live streaming is experimental and needs your own TURN relay. See [Camera Live View](camera.md).
 - Firmware Updates
 - Schedules (Routines/Scenes do work though)
 - China-market devices do not work outside of China. Their firmware checks the region they are used in (via `rrcheck`), and after local onboarding they reject ordinary commands such as `get_status` with `-10002 / rrcheck access denied`. See [#81](https://github.com/Python-roborock/local_roborock_server/issues/81).
