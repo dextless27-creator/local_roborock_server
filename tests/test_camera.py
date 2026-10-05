@@ -224,3 +224,16 @@ def test_proxy_does_not_answer_other_camera_methods(tmp_path: Path) -> None:
     assert published == []
     decoded = json.loads((tmp_path / "decoded.jsonl").read_text(encoding="utf-8").splitlines()[-1])
     assert decoded["decoded_messages"][0]["handled"] == {"camera": True, "method": "start_camera_preview"}
+
+
+def test_load_config_reads_turn_provisioning_https_port(tmp_path: Path) -> None:
+    config = load_config(
+        _write_config(
+            tmp_path,
+            '\n[camera]\nturn_url = "turn:192.168.1.10:3478"\nturn_user = "roborock"\n'
+            'turn_password = "secret"\nturn_provisioning_https_port = 443\n',
+        )
+    )
+
+    assert config.camera.turn_provisioning_https_port == 443
+    assert load_config(_write_config(tmp_path)).camera.turn_provisioning_https_port == 0

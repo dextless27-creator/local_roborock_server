@@ -38,6 +38,7 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "camera_turn_user": "roborock",
     "camera_turn_password": "",
     "camera_turn_external_ip": "",
+    "camera_turn_provisioning_https_port": 0,
 }
 
 _HOST_RE = re.compile(r"^[a-z0-9.-]+$")
@@ -171,6 +172,12 @@ def _render_camera(merged: dict[str, Any]) -> tuple[list[str], str | None]:
         f"turn_user = {_toml_string(user)}",
         f"turn_password = {_toml_string(password)}",
     ]
+    provisioning_port = _as_optional_port(
+        merged.get("camera_turn_provisioning_https_port"),
+        field_name="camera_turn_provisioning_https_port",
+    )
+    if provisioning_port:
+        lines.append(f"turn_provisioning_https_port = {provisioning_port}")
     if mode != "bundled":
         return lines, None
     turnserver_conf = [

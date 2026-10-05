@@ -357,6 +357,7 @@ class ReleaseSupervisor:
         self._topic_bridge: MqttTopicBridge | None = None
         self._mqtt_proxy: MqttTlsProxy | None = None
         self._http_server: ManagedFastApiServer | None = None
+        self._turn_provisioning_http_server: ManagedFastApiServer | None = None
         self._renew_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -1849,6 +1850,29 @@ class ReleaseSupervisor:
         )
         await self._http_server.start()
         self.runtime_state.set_service("https_server", running=True, required=True, enabled=True)
+        turn_port = self.config.camera.turn_provisioning_https_port
+        if turn_port and turn_port != self.config.network.https_port:
+            # The robot fetches its camera TURN relay from a derived *iot.roborock.com host on
+            # the default HTTPS port; a DNS rewrite can point that host here.
+            self._turn_provisioning_http_server = ManagedFastApiServer(
+                app=self.app,
+                bind_host=self.config.network.bind_host,
+                port=turn_port,
+                tls_enabled=local_tls,
+                cert_file=cert_paths.cert_file if local_tls else None,
+                key_file=cert_paths.key_file if local_tls else None,
+            )
+            await self._turn_provisioning_http_server.start()
+            self.root_logger.info("Camera TURN provisioning listener on port %d", turn_port)
+
+    async def _stop_http_server(self) -> None:
+        if self._turn_provisioning_http_server is not None:
+            await self._turn_provisioning_http_server.stop()
+            self._turn_provisioning_http_server = None
+        if self._http_server is not None:
+            self.runtime_state.set_service("https_server", running=False, required=True, enabled=True)
+            await self._http_server.stop()
+            self._http_server = None
 
     def _start_mqtt_proxy(self) -> None:
         cert_paths = self.certificate_manager.certificate_paths
@@ -1879,10 +1903,7 @@ class ReleaseSupervisor:
 
     async def reload_tls_services(self) -> None:
         self.root_logger.info("Reloading TLS listeners after certificate update")
-        if self._http_server is not None:
-            self.runtime_state.set_service("https_server", running=False, required=True, enabled=True)
-            await self._http_server.stop()
-            self._http_server = None
+        await self._stop_http_server()
         if self._mqtt_proxy is not None:
             self.runtime_state.set_service("mqtt_tls_proxy", running=False, required=True, enabled=True)
             self._mqtt_proxy.stop()
@@ -1977,10 +1998,7 @@ class ReleaseSupervisor:
             )
             await self._topic_bridge.stop()
             self._topic_bridge = None
-        if self._http_server is not None:
-            self.runtime_state.set_service("https_server", running=False, required=True, enabled=True)
-            await self._http_server.stop()
-            self._http_server = None
+        await self._stop_http_server()
         self.runtime_state.set_service("mqtt_backend_broker", running=False, required=True, enabled=True)
         if self._broker is not None:
             await self._broker.shutdown()

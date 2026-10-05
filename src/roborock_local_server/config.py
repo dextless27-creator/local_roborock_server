@@ -77,6 +77,7 @@ class CameraConfig:
     turn_user: str = ""
     turn_password: str = ""
     answer_turn_requests: bool = True
+    turn_provisioning_https_port: int = 0
 
 
 @dataclass(frozen=True)
@@ -240,6 +241,11 @@ def _load_camera_config(camera: dict[str, object]) -> CameraConfig:
         turn_user=turn_user,
         turn_password=turn_password,
         answer_turn_requests=_as_bool(camera.get("answer_turn_requests"), True),
+        turn_provisioning_https_port=(
+            _as_port(camera.get("turn_provisioning_https_port"), "camera.turn_provisioning_https_port", 443)
+            if camera.get("turn_provisioning_https_port") not in (None, "", 0)
+            else 0
+        ),
     )
 
 

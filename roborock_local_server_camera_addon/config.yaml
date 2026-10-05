@@ -1,5 +1,5 @@
 name: Roborock Local Server (Camera Test)
-version: "1.2.0-camera.1"
+version: "1.2.0-camera.2"
 slug: roborock_local_server_camera
 description: Roborock Local Server built from the feat/camera-turn-support branch, with a bundled TURN relay for camera live view.
 url: "https://github.com/dextless27-creator/local_roborock_server/tree/feat/camera-turn-support"
@@ -42,6 +42,7 @@ options:
   camera_turn_user: "roborock"
   camera_turn_password: ""
   camera_turn_external_ip: ""
+  camera_turn_provisioning_https_port: 0
 schema:
   stack_fqdn: str
   https_port: port
@@ -67,3 +68,4 @@ schema:
   camera_turn_user: str
   camera_turn_password: password
   camera_turn_external_ip: str
+  camera_turn_provisioning_https_port: int
